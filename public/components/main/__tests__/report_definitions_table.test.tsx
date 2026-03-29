@@ -4,7 +4,13 @@
  */
 
 import React from 'react';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import { ReportDefinitions } from '../report_definitions_table';
 import httpClientMock from '../../../../test/httpMockClient';
 
@@ -20,7 +26,7 @@ const emptyResourceSharingConfig = {
 
 describe('<ReportDefinitions /> panel', () => {
   test('render component', () => {
-    let reportDefinitionsTableContent = [
+    const reportDefinitionsTableContent = [
       {
         id: '1',
         reportName: 'test report name',
@@ -71,7 +77,7 @@ describe('<ReportDefinitions /> panel', () => {
     expect(container.firstChild).toMatchSnapshot();
   });
 
-  test('test click on report definition row', async () => {
+  test('click on report definition row', async () => {
     window = Object.create(window);
     Object.defineProperty(window, 'location', {
       configurable: true,
@@ -79,7 +85,7 @@ describe('<ReportDefinitions /> panel', () => {
         assign: jest.fn(),
       },
     });
-    let reportDefinitionsTableContent = [
+    const reportDefinitionsTableContent = [
       {
         id: '1',
         reportName: 'test report name',
