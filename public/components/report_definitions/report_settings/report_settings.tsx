@@ -110,6 +110,49 @@ export function ReportSettings(props: ReportSettingProps) {
 
   const [fileFormat, setFileFormat] = useState('pdf');
 
+  const extractReportSourceIdFromUrl = (url: string) => {
+    const trimmedUrl = url.replace(/\/$/, '');
+    const urlParts = trimmedUrl.split('/');
+    return urlParts[urlParts.length - 1];
+  };
+
+  const buildFallbackReportSourceOption = (
+    reportSource: string,
+    url: string
+  ) => {
+    const sourceId = extractReportSourceIdFromUrl(url);
+    return {
+      value: sourceId,
+      label: `Current ${reportSource.toLowerCase()} (${sourceId})`,
+    };
+  };
+
+  const setDropdownSelectionWithFallback = (
+    options,
+    reportSource,
+    url,
+    setSelectedOptions,
+    setOptions
+  ) => {
+    const selectedOption = options.find((option) => url.includes(option.value));
+
+    if (selectedOption) {
+      setSelectedOptions([selectedOption]);
+      return;
+    }
+
+    const fallbackOption = buildFallbackReportSourceOption(reportSource, url);
+
+    if (fallbackOption.value) {
+      setSelectedOptions([fallbackOption]);
+      setOptions((previousOptions) =>
+        previousOptions.some((option) => option.value === fallbackOption.value)
+          ? previousOptions
+          : [...previousOptions, fallbackOption]
+      );
+    }
+  };
+
   const handleDashboards = (e) => {
     setDashboards(e);
   };
@@ -478,25 +521,38 @@ export function ReportSettings(props: ReportSettingProps) {
   };
 
   const setReportSourceDropdownOption = (options, reportSource, url) => {
-    let index = 0;
     if (reportSource === REPORT_SOURCE_TYPES.dashboard) {
-      for (index = 0; index < options.dashboard.length; ++index) {
-        if (url.includes(options.dashboard[index].value)) {
-          setDashboardSourceSelect([options.dashboard[index]]);
-        }
-      }
+      setDropdownSelectionWithFallback(
+        options.dashboard,
+        reportSource,
+        url,
+        setDashboardSourceSelect,
+        setDashboards
+      );
     } else if (reportSource === REPORT_SOURCE_TYPES.visualization) {
-      for (index = 0; index < options.visualizations.length; ++index) {
-        if (url.includes(options.visualizations[index].value)) {
-          setVisualizationSourceSelect([options.visualizations[index]]);
-        }
-      }
+      setDropdownSelectionWithFallback(
+        options.visualizations,
+        reportSource,
+        url,
+        setVisualizationSourceSelect,
+        setVisualizations
+      );
     } else if (reportSource === REPORT_SOURCE_TYPES.savedSearch) {
-      for (index = 0; index < options.savedSearch.length; ++index) {
-        if (url.includes(options.savedSearch[index].value)) {
-          setSavedSearchSourceSelect([options.savedSearch[index]]);
-        }
-      }
+      setDropdownSelectionWithFallback(
+        options.savedSearch,
+        reportSource,
+        url,
+        setSavedSearchSourceSelect,
+        setSavedSearches
+      );
+    } else if (reportSource === REPORT_SOURCE_TYPES.notebook) {
+      setDropdownSelectionWithFallback(
+        options.notebooks,
+        reportSource,
+        url,
+        setNotebooksSourceSelect,
+        setNotebooks
+      );
     }
   };
 
@@ -704,23 +760,35 @@ export function ReportSettings(props: ReportSettingProps) {
   };
 
   useEffect(() => {
-    let reportSourceOptions = {};
-    let editData = {};
-    if (edit) {
-      defaultConfigurationEdit(httpClientProps).then(async (response) => {
-        editData = response;
-      });
-    }
-    defaultConfigurationCreate(httpClientProps).then(async (response) => {
-      reportSourceOptions = response;
+    let unmounted = false;
+
+    const loadDefaultConfiguration = async () => {
+      const [reportSourceOptions, editData] = await Promise.all([
+        defaultConfigurationCreate(httpClientProps),
+        edit
+          ? defaultConfigurationEdit(httpClientProps)
+          : Promise.resolve(undefined),
+      ]);
+
+      if (unmounted) {
+        return;
+      }
+
       // if coming from in-context menu
       if (window.location.href.indexOf('?') > -1) {
-        setInContextDefaultConfiguration(response);
+        setInContextDefaultConfiguration(reportSourceOptions);
       }
-      if (edit) {
+
+      if (edit && editData?.report_definition) {
         setDefaultEditValues(editData, reportSourceOptions);
       }
-    });
+    };
+
+    loadDefaultConfiguration();
+
+    return () => {
+      unmounted = true;
+    };
   }, []);
 
   const displayDashboardSelect =

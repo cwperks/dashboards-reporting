@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { Fragment, useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { i18n } from '@osd/i18n';
 import {
   EuiFlexGroup,
@@ -17,13 +17,22 @@ import {
   EuiText,
   EuiTitle,
 } from '@elastic/eui';
+import CSS from 'csstype';
 import { ReportsTable } from './reports_table';
 import { ReportDefinitions } from './report_definitions_table';
 import {
   addReportsTableContent,
   addReportDefinitionsTableContent,
 } from './main_utils';
-import CSS from 'csstype';
+import {
+  EMPTY_RESOURCE_SHARING_CONFIG,
+  ResourceSharingConfig,
+  SharePermissionMap,
+  buildSharePermissionMap,
+  supportsResourceSharingForType,
+  REPORT_DEFINITION_RESOURCE_TYPE,
+  REPORT_INSTANCE_RESOURCE_TYPE,
+} from './resource_sharing_utils';
 import {
   permissionsMissingToast,
   permissionsMissingActions,
@@ -42,6 +51,17 @@ export function Main(props) {
     reportDefinitionsTableContent,
     setReportDefinitionsTableContent,
   ] = useState([]);
+  const [resourceSharingConfig, setResourceSharingConfig] = useState<
+    ResourceSharingConfig
+  >(EMPTY_RESOURCE_SHARING_CONFIG);
+  const [
+    reportDefinitionSharePermissions,
+    setReportDefinitionSharePermissions,
+  ] = useState<SharePermissionMap>({});
+  const [
+    reportInstanceSharePermissions,
+    setReportInstanceSharePermissions,
+  ] = useState<SharePermissionMap>({});
   const [toasts, setToasts] = useState([]);
 
   const addPermissionsMissingDownloadToastHandler = () => {
@@ -191,6 +211,24 @@ export function Main(props) {
     addDeleteReportDefinitionSuccessToastHandler();
   };
 
+  const addResourceSharingSuccessToastHandler = () => {
+    const successToast = {
+      title: i18n.translate(
+        'opensearch.reports.main.successfullyUpdatedResourceSharing',
+        { defaultMessage: 'Successfully updated sharing.' }
+      ),
+      color: 'success',
+      iconType: 'check',
+      id: 'resourceSharingSuccessToast',
+    };
+    setToasts(toasts.concat(successToast));
+  };
+
+  const handleResourceSharingSuccessToast = () => {
+    addResourceSharingSuccessToastHandler();
+    refreshResourceSharingPermissions(resourceSharingConfig);
+  };
+
   const removeToast = (removedToast) => {
     setToasts(toasts.filter((toast) => toast.id !== removedToast.id));
   };
@@ -198,6 +236,75 @@ export function Main(props) {
   const pagination = {
     initialPageSize: 10,
     pageSizeOptions: [5, 10, 20],
+  };
+
+  const refreshSharePermissionsForType = async (
+    resourceType: string,
+    setPermissions: (permissions: SharePermissionMap) => void
+  ) => {
+    const { httpClient } = props;
+
+    await httpClient
+      .get('../api/reporting/resourceSharing/list', {
+        query: {
+          resourceType,
+        },
+      })
+      .then((response) => {
+        setPermissions(buildSharePermissionMap(response));
+      })
+      .catch((error) => {
+        console.log(
+          `error when fetching resource sharing permissions for ${resourceType}: `,
+          error
+        );
+        setPermissions({});
+      });
+  };
+
+  const refreshResourceSharingPermissions = async (
+    config: ResourceSharingConfig
+  ) => {
+    if (supportsResourceSharingForType(config, REPORT_INSTANCE_RESOURCE_TYPE)) {
+      refreshSharePermissionsForType(
+        REPORT_INSTANCE_RESOURCE_TYPE,
+        setReportInstanceSharePermissions
+      );
+    } else {
+      setReportInstanceSharePermissions({});
+    }
+
+    if (
+      supportsResourceSharingForType(config, REPORT_DEFINITION_RESOURCE_TYPE)
+    ) {
+      refreshSharePermissionsForType(
+        REPORT_DEFINITION_RESOURCE_TYPE,
+        setReportDefinitionSharePermissions
+      );
+    } else {
+      setReportDefinitionSharePermissions({});
+    }
+  };
+
+  const refreshResourceSharingConfig = async () => {
+    const { httpClient } = props;
+
+    await httpClient
+      .get('../api/reporting/resourceSharing/config')
+      .then((response) => {
+        const nextConfig = {
+          enabled: response?.enabled === true,
+          types: response?.types || [],
+        };
+        setResourceSharingConfig(nextConfig);
+        refreshResourceSharingPermissions(nextConfig);
+      })
+      .catch((error) => {
+        console.log('error when fetching resource sharing config: ', error);
+        setResourceSharingConfig(EMPTY_RESOURCE_SHARING_CONFIG);
+        setReportDefinitionSharePermissions({});
+        setReportInstanceSharePermissions({});
+      });
   };
 
   useEffect(() => {
@@ -211,6 +318,7 @@ export function Main(props) {
     ]);
     refreshReportsTable();
     refreshReportsDefinitionsTable();
+    refreshResourceSharingConfig();
 
     if (window.location.href.includes('create=success')) {
       handleCreateReportDefinitionSuccessToast();
@@ -277,16 +385,17 @@ export function Main(props) {
     <div>
       <EuiTitle size="l">
         <h1>
-          {!getNavGroupEnabled && i18n.translate('opensearch.reporting.title', {
-            defaultMessage: 'Reporting',
-          })}
+          {!getNavGroupEnabled &&
+            i18n.translate('opensearch.reporting.title', {
+              defaultMessage: 'Reporting',
+            })}
         </h1>
       </EuiTitle>
-      {!getNavGroupEnabled && <EuiSpacer size='s' />}
+      {!getNavGroupEnabled && <EuiSpacer size="s" />}
       <EuiPanel paddingSize={'m'}>
         <EuiFlexGroup justifyContent="spaceEvenly">
           <EuiFlexItem>
-            <EuiText size='s'>
+            <EuiText size="s">
               <h3>
                 {i18n.translate('opensearch.reports.main.title.reports', {
                   defaultMessage: 'Reports',
@@ -308,21 +417,24 @@ export function Main(props) {
             </EuiSmallButton>
           </EuiFlexItem>
         </EuiFlexGroup>
-        <EuiHorizontalRule margin='s' />
+        <EuiHorizontalRule margin="s" />
         <ReportsTable
           pagination={pagination}
           reportsTableItems={reportsTableContent}
-          httpClient={props['httpClient']}
+          httpClient={props.httpClient}
           handleSuccessToast={handleOnDemandDownloadSuccessToast}
           handleErrorToast={handleOnDemandDownloadErrorToast}
           handlePermissionsMissingToast={handlePermissionsMissingDownloadToast}
+          resourceSharingConfig={resourceSharingConfig}
+          sharePermissions={reportInstanceSharePermissions}
+          handleResourceSharingSuccessToast={handleResourceSharingSuccessToast}
         />
       </EuiPanel>
       <EuiSpacer />
       <EuiPanel paddingSize={'m'}>
         <EuiFlexGroup justifyContent="spaceEvenly">
           <EuiFlexItem>
-            <EuiText size='s'>
+            <EuiText size="s">
               <h3>
                 {i18n.translate(
                   'opensearch.reports.main.title.reportDefinitions',
@@ -362,10 +474,14 @@ export function Main(props) {
             </EuiSmallButton>
           </EuiFlexItem>
         </EuiFlexGroup>
-        <EuiHorizontalRule margin='s' />
+        <EuiHorizontalRule margin="s" />
         <ReportDefinitions
           pagination={pagination}
           reportDefinitionsTableContent={reportDefinitionsTableContent}
+          httpClient={props.httpClient}
+          resourceSharingConfig={resourceSharingConfig}
+          sharePermissions={reportDefinitionSharePermissions}
+          handleResourceSharingSuccessToast={handleResourceSharingSuccessToast}
         />
       </EuiPanel>
       <EuiGlobalToastList
