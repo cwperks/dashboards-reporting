@@ -13,6 +13,11 @@ const pagination = {
   pageSizeOptions: [8, 10, 13],
 };
 
+const emptyResourceSharingConfig = {
+  enabled: false,
+  types: [],
+};
+
 describe('<ReportsTable /> panel', () => {
   test('render component', () => {
     let reportsTableItems = [
@@ -33,6 +38,12 @@ describe('<ReportsTable /> panel', () => {
         reportsTableItems={reportsTableItems}
         httpClient={httpClientMock}
         pagination={pagination}
+        handleSuccessToast={jest.fn()}
+        handleErrorToast={jest.fn()}
+        handlePermissionsMissingToast={jest.fn()}
+        resourceSharingConfig={emptyResourceSharingConfig}
+        sharePermissions={{}}
+        handleResourceSharingSuccessToast={jest.fn()}
       />
     );
     expect(container.firstChild).toMatchSnapshot();
@@ -44,6 +55,12 @@ describe('<ReportsTable /> panel', () => {
         reportsTableItems={[]}
         httpClient={httpClientMock}
         pagination={pagination}
+        handleSuccessToast={jest.fn()}
+        handleErrorToast={jest.fn()}
+        handlePermissionsMissingToast={jest.fn()}
+        resourceSharingConfig={emptyResourceSharingConfig}
+        sharePermissions={{}}
+        handleResourceSharingSuccessToast={jest.fn()}
       />
     );
     expect(container.firstChild).toMatchSnapshot();
@@ -69,6 +86,12 @@ describe('<ReportsTable /> panel', () => {
         reportsTableItems={reportsTableItems}
         httpClient={httpClientMock}
         pagination={pagination}
+        handleSuccessToast={jest.fn()}
+        handleErrorToast={jest.fn()}
+        handlePermissionsMissingToast={jest.fn()}
+        resourceSharingConfig={emptyResourceSharingConfig}
+        sharePermissions={{}}
+        handleResourceSharingSuccessToast={jest.fn()}
       />
     );
 
