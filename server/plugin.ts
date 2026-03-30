@@ -16,7 +16,7 @@ import opensearchReportsPlugin from './backend/opensearch-reports-plugin';
 import { NotificationsPlugin } from './clusters/notificationsPlugin';
 import { buildConfig, ReportingConfigType } from './config';
 import { ReportingConfig } from './config/config';
-import registerRoutes from './routes';
+import { registerRoutes } from './routes';
 import {
   ReportsDashboardsPluginSetup,
   ReportsDashboardsPluginStart,
@@ -26,7 +26,7 @@ export interface ReportsPluginRequestContext {
   logger: Logger;
   opensearchClient: ILegacyClusterClient;
 }
-//@ts-ignore
+// @ts-ignore
 declare module 'kibana/server' {
   interface RequestHandlerContext {
     reports_plugin: ReportsPluginRequestContext;
@@ -107,9 +107,9 @@ export class ReportsDashboardsPlugin
 
     // put logger into route handler context, so that we don't need to pass through parameters
     core.http.registerRouteHandlerContext(
-      //@ts-ignore
+      // @ts-ignore
       'reporting_plugin',
-      (context, request) => {
+      (_context, _request) => {
         return {
           logger: this.logger,
           opensearchReportsClient,
@@ -121,7 +121,7 @@ export class ReportsDashboardsPlugin
     return {};
   }
 
-  public start(core: CoreStart) {
+  public start(_core: CoreStart) {
     this.logger.debug('reports-dashboards: Started');
     return {};
   }
