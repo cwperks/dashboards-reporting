@@ -148,14 +148,19 @@ jobs:
       - name: Check If OpenSearch Dashboards Is Ready
         if: ${{ runner.os == 'Linux' }}
         run: |
-          if timeout 1200 grep -q "http server running" <(tail -n0 -f dashboard.log); then
-            echo "OpenSearch Dashboards started successfully."
-          else
-            echo "Timeout for 1200 seconds reached. OpenSearch Dashboards did not start."
-            echo "Last 200 lines of dashboard.log:"
-            tail -n 200 dashboard.log || true
-            exit 1
-          fi
+          echo "Waiting for OpenSearch Dashboards server and bundles to be ready."
+          for i in {1..120}; do
+            if grep -q "http server running" dashboard.log && \
+              grep -Eq "bundles compiled successfully after|all bundles cached, success after" dashboard.log; then
+              echo "OpenSearch Dashboards started successfully and bundles are ready."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Timeout for 1200 seconds reached. OpenSearch Dashboards did not become ready."
+          echo "Last 200 lines of dashboard.log:"
+          tail -n 200 dashboard.log || true
+          exit 1
         working-directory: OpenSearch-Dashboards
 
       - name: Upload Dashboards logs
