@@ -12,6 +12,7 @@ import {
   EuiIcon,
   EuiEmptyPrompt,
   EuiInMemoryTable,
+  EuiSmallButtonEmpty,
 } from '@elastic/eui';
 import {
   fileFormatsUpper,
@@ -19,6 +20,38 @@ import {
   generateReportById,
 } from './main_utils';
 import { GenerateReportLoadingModal } from './loading_modal';
+import { HttpSetup } from '../../../../../src/core/public';
+import { ResourceSharingModal } from './resource_sharing_modal';
+import {
+  REPORT_INSTANCE_RESOURCE_TYPE,
+  ResourceSharingConfig,
+  SharePermissionMap,
+  getAccessLevelsForType,
+  supportsResourceSharingForType,
+} from './resource_sharing_utils';
+
+interface ReportRow {
+  id: string;
+  reportName: string;
+  reportSource: string;
+  url: string;
+  type: string;
+  timeCreated: string | number | Date;
+  state: string;
+  format: string;
+}
+
+interface ReportsTableProps {
+  pagination: Record<string, unknown>;
+  reportsTableItems: ReportRow[];
+  httpClient: HttpSetup;
+  handleSuccessToast: () => void;
+  handleErrorToast: (title?: string, text?: string) => void;
+  handlePermissionsMissingToast: () => void;
+  resourceSharingConfig: ResourceSharingConfig;
+  sharePermissions: SharePermissionMap;
+  handleResourceSharingSuccessToast: () => void;
+}
 
 const reportStatusOptions = [
   'Created',
@@ -75,7 +108,7 @@ const emptyMessageReports = (
   />
 );
 
-export function ReportsTable(props) {
+export function ReportsTable(props: ReportsTableProps) {
   const {
     pagination,
     reportsTableItems,
@@ -83,18 +116,21 @@ export function ReportsTable(props) {
     handleSuccessToast,
     handleErrorToast,
     handlePermissionsMissingToast,
+    resourceSharingConfig,
+    sharePermissions,
+    handleResourceSharingSuccessToast,
   } = props;
 
-  const [sortField, setSortField] = useState('timeCreated');
-  const [sortDirection, setSortDirection] = useState('des');
+  const sortField = 'timeCreated';
+  const sortDirection = 'des';
   const [showLoading, setShowLoading] = useState(false);
-  const [message, setMessage] = useState('');
+  const [selectedReport, setSelectedReport] = useState<ReportRow | null>(null);
 
-  const handleLoading = (e) => {
+  const handleLoading = (e: boolean) => {
     setShowLoading(e);
   };
 
-  const onDemandDownload = async (id: any) => {
+  const onDemandDownload = async (id: string) => {
     handleLoading(true);
     await generateReportById(
       id,
@@ -159,7 +195,7 @@ export function ReportsTable(props) {
         { defaultMessage: 'Creation time' }
       ),
       render: (date) => {
-        let readable = humanReadableDate(date);
+        const readable = humanReadableDate(date);
         return <EuiText size="s">{readable}</EuiText>;
       },
     },
@@ -193,6 +229,53 @@ export function ReportsTable(props) {
         ),
     },
   ];
+
+  const reportInstanceAccessLevels = getAccessLevelsForType(
+    resourceSharingConfig as ResourceSharingConfig,
+    REPORT_INSTANCE_RESOURCE_TYPE
+  );
+
+  if (
+    supportsResourceSharingForType(
+      resourceSharingConfig as ResourceSharingConfig,
+      REPORT_INSTANCE_RESOURCE_TYPE
+    )
+  ) {
+    reportsTableColumns.push({
+      name: i18n.translate(
+        'opensearch.reports.reportsTable.reportsTableColumns.Share',
+        { defaultMessage: 'Share' }
+      ),
+      render: (item) => {
+        const canShare = sharePermissions[item.id] === true;
+
+        return (
+          <EuiSmallButtonEmpty
+            iconType="share"
+            onClick={() => canShare && setSelectedReport(item)}
+            disabled={!canShare}
+            title={
+              canShare
+                ? undefined
+                : i18n.translate(
+                    'opensearch.reports.reportsTable.reportsTableColumns.ShareButtonDisabledTooltip',
+                    {
+                      defaultMessage:
+                        'You do not have permission to share this report.',
+                    }
+                  )
+            }
+            data-test-subj={`reportShareButton-${item.id}`}
+          >
+            {i18n.translate(
+              'opensearch.reports.reportsTable.reportsTableColumns.ShareButtonLabel',
+              { defaultMessage: 'Share' }
+            )}
+          </EuiSmallButtonEmpty>
+        );
+      },
+    });
+  }
 
   const sorting = {
     sort: {
@@ -268,6 +351,24 @@ export function ReportsTable(props) {
         tableLayout={'auto'}
       />
       {showLoadingModal}
+      {selectedReport && (
+        <ResourceSharingModal
+          isOpen={true}
+          onClose={() => setSelectedReport(null)}
+          onSaveSuccess={handleResourceSharingSuccessToast}
+          httpClient={httpClient}
+          resourceId={selectedReport.id}
+          resourceName={selectedReport.reportName}
+          resourceType={REPORT_INSTANCE_RESOURCE_TYPE}
+          resourceLabel={i18n.translate(
+            'opensearch.reports.reportsTable.resourceLabel',
+            {
+              defaultMessage: 'report',
+            }
+          )}
+          accessLevels={reportInstanceAccessLevels}
+        />
+      )}
     </Fragment>
   );
 }

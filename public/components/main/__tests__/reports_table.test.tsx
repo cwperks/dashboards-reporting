@@ -4,7 +4,13 @@
  */
 
 import React from 'react';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import { ReportsTable } from '../reports_table';
 import httpClientMock from '../../../../test/httpMockClient';
 
@@ -13,9 +19,14 @@ const pagination = {
   pageSizeOptions: [8, 10, 13],
 };
 
+const emptyResourceSharingConfig = {
+  enabled: false,
+  types: [],
+};
+
 describe('<ReportsTable /> panel', () => {
   test('render component', () => {
-    let reportsTableItems = [
+    const reportsTableItems = [
       {
         id: '1',
         reportName: 'test report table item',
@@ -33,6 +44,12 @@ describe('<ReportsTable /> panel', () => {
         reportsTableItems={reportsTableItems}
         httpClient={httpClientMock}
         pagination={pagination}
+        handleSuccessToast={jest.fn()}
+        handleErrorToast={jest.fn()}
+        handlePermissionsMissingToast={jest.fn()}
+        resourceSharingConfig={emptyResourceSharingConfig}
+        sharePermissions={{}}
+        handleResourceSharingSuccessToast={jest.fn()}
       />
     );
     expect(container.firstChild).toMatchSnapshot();
@@ -44,13 +61,19 @@ describe('<ReportsTable /> panel', () => {
         reportsTableItems={[]}
         httpClient={httpClientMock}
         pagination={pagination}
+        handleSuccessToast={jest.fn()}
+        handleErrorToast={jest.fn()}
+        handlePermissionsMissingToast={jest.fn()}
+        resourceSharingConfig={emptyResourceSharingConfig}
+        sharePermissions={{}}
+        handleResourceSharingSuccessToast={jest.fn()}
       />
     );
     expect(container.firstChild).toMatchSnapshot();
   });
 
   test('click on generate button', async () => {
-    let reportsTableItems = [
+    const reportsTableItems = [
       {
         id: '1',
         reportName: 'test report table item',
@@ -69,6 +92,12 @@ describe('<ReportsTable /> panel', () => {
         reportsTableItems={reportsTableItems}
         httpClient={httpClientMock}
         pagination={pagination}
+        handleSuccessToast={jest.fn()}
+        handleErrorToast={jest.fn()}
+        handlePermissionsMissingToast={jest.fn()}
+        resourceSharingConfig={emptyResourceSharingConfig}
+        sharePermissions={{}}
+        handleResourceSharingSuccessToast={jest.fn()}
       />
     );
 

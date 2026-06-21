@@ -21,6 +21,7 @@ import {
   EuiOverlayMask,
   EuiConfirmModal,
 } from '@elastic/eui';
+import moment from 'moment';
 import {
   ReportDetailsComponent,
   trimAndRenderAsText,
@@ -30,7 +31,15 @@ import {
   generateReportFromDefinitionId,
 } from '../main_utils';
 import { ReportDefinitionSchemaType } from '../../../../server/model';
-import moment from 'moment';
+import { ResourceSharingModal } from '../resource_sharing_modal';
+import {
+  EMPTY_RESOURCE_SHARING_CONFIG,
+  REPORT_DEFINITION_RESOURCE_TYPE,
+  ResourceSharingConfig,
+  buildSharePermissionMap,
+  getAccessLevelsForType,
+  supportsResourceSharingForType,
+} from '../resource_sharing_utils';
 import {
   permissionsMissingToast,
   permissionsMissingActions,
@@ -56,9 +65,16 @@ interface ReportDefinitionDetails {
   baseUrl: string;
 }
 
-export function ReportDefinitionDetails(props: { match?: any; setBreadcrumbs?: any; httpClient?: any; chrome: any }) {
+export function ReportDefinitionDetails(props: {
+  match?: any;
+  setBreadcrumbs?: any;
+  httpClient?: any;
+  chrome: any;
+}) {
   const { chrome } = props;
-  const [reportDefinitionDetails, setReportDefinitionDetails] = useState<ReportDefinitionDetails>({
+  const [reportDefinitionDetails, setReportDefinitionDetails] = useState<
+    ReportDefinitionDetails
+  >({
     name: '',
     description: '',
     created: '',
@@ -72,7 +88,7 @@ export function ReportDefinitionDetails(props: { match?: any; setBreadcrumbs?: a
     reportFooter: '',
     triggerType: '',
     scheduleDetails: '',
-    baseUrl: ''
+    baseUrl: '',
   });
   const [
     reportDefinitionRawResponse,
@@ -81,14 +97,23 @@ export function ReportDefinitionDetails(props: { match?: any; setBreadcrumbs?: a
   const [toasts, setToasts] = useState([]);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showLoading, setShowLoading] = useState(false);
-  const reportDefinitionId = props.match['params']['reportDefinitionId'];
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [resourceSharingConfig, setResourceSharingConfig] = useState<
+    ResourceSharingConfig
+  >(EMPTY_RESOURCE_SHARING_CONFIG);
+  const [canShareReportDefinition, setCanShareReportDefinition] = useState(
+    false
+  );
+  const reportDefinitionId = props.match.params.reportDefinitionId;
   const getNavGroupEnabled = chrome.navGroup.getNavGroupEnabled();
 
   const handleLoading = (e: boolean | ((prevState: boolean) => boolean)) => {
     setShowLoading(e);
   };
 
-  const handleShowDeleteModal = (e: boolean | ((prevState: boolean) => boolean)) => {
+  const handleShowDeleteModal = (
+    e: boolean | ((prevState: boolean) => boolean)
+  ) => {
     setShowDeleteModal(e);
   };
 
@@ -154,6 +179,24 @@ export function ReportDefinitionDetails(props: { match?: any; setBreadcrumbs?: a
 
   const handleSuccessGeneratingReportToast = () => {
     addSuccessGeneratingReportToastHandler();
+  };
+
+  const addSuccessUpdatingSharingToastHandler = () => {
+    const successToast = {
+      title: i18n.translate(
+        'opensearch.reports.reportDefinitionsDetails.toast.successfullyUpdatedSharing',
+        { defaultMessage: 'Successfully updated sharing.' }
+      ),
+      color: 'success',
+      iconType: 'check',
+      id: 'shareReportDefinitionSuccessToast',
+    };
+    // @ts-ignore
+    setToasts(toasts.concat(successToast));
+  };
+
+  const handleSuccessUpdatingSharingToast = () => {
+    addSuccessUpdatingSharingToastHandler();
   };
 
   const addErrorGeneratingReportToastHandler = () => {
@@ -270,7 +313,7 @@ export function ReportDefinitionDetails(props: { match?: any; setBreadcrumbs?: a
     addErrorDeletingReportDefinitionToastHandler();
   };
 
-  const removeToast = (removedToast: { id: string; }) => {
+  const removeToast = (removedToast: { id: string }) => {
     setToasts(toasts.filter((toast: any) => toast.id !== removedToast.id));
   };
 
@@ -278,7 +321,7 @@ export function ReportDefinitionDetails(props: { match?: any; setBreadcrumbs?: a
     setReportDefinitionDetails(e);
   };
 
-  const handleReportDefinitionRawResponse = (e: {} ) => {
+  const handleReportDefinitionRawResponse = (e: {}) => {
     setReportDefinitionRawResponse(e);
   };
 
@@ -381,12 +424,11 @@ export function ReportDefinitionDetails(props: { match?: any; setBreadcrumbs?: a
 
   const getReportDefinitionDetailsMetadata = (
     data: ReportDefinitionSchemaType
-  ) : ReportDefinitionDetails => {
+  ): ReportDefinitionDetails => {
     const reportDefinition: ReportDefinitionSchemaType = data;
     const {
       report_params: reportParams,
       trigger,
-      delivery,
       time_created: timeCreated,
       last_updated: lastUpdated,
     } = reportDefinition;
@@ -402,91 +444,138 @@ export function ReportDefinitionDetails(props: { match?: any; setBreadcrumbs?: a
       },
     } = reportParams;
 
-    let readableDate = new Date(timeCreated);
-    let displayCreatedDate =
+    const readableDate = new Date(timeCreated);
+    const displayCreatedDate =
       readableDate.toDateString() + ' ' + readableDate.toLocaleTimeString();
 
-    let readableUpdatedDate = new Date(lastUpdated);
-    let displayUpdatedDate =
+    const readableUpdatedDate = new Date(lastUpdated);
+    const displayUpdatedDate =
       readableUpdatedDate.toDateString() +
       ' ' +
       readableUpdatedDate.toLocaleTimeString();
 
-    let reportDefinitionDetails = {
+    const details = {
       name: reportParams.report_name,
       description:
         reportParams.description === '' ? `\u2014` : reportParams.description,
       created: displayCreatedDate,
       lastUpdated: displayUpdatedDate,
       source: reportParams.report_source,
-      recordLimit: 
-        reportParams.report_source != 'Saved search' 
-          ? `\u2014` 
+      recordLimit:
+        reportParams.report_source !== 'Saved search'
+          ? `\u2014`
           : reportParams.core_params.limit,
-      baseUrl: baseUrl,
+      baseUrl,
       // TODO: need better display
       timePeriod: moment.duration(timeDuration).humanize(),
       fileFormat: reportFormat,
       reportHeader:
         reportParams.core_params.hasOwnProperty('header') &&
-        reportParams.core_params.header != ''
+        reportParams.core_params.header !== ''
           ? reportParams.core_params.header
           : `\u2014`,
       reportFooter:
         reportParams.core_params.hasOwnProperty('footer') &&
-        reportParams.core_params.footer != ''
+        reportParams.core_params.footer !== ''
           ? reportParams.core_params.footer
           : `\u2014`,
-      triggerType: triggerType,
+      triggerType,
       scheduleDetails: triggerParams
         ? humanReadableScheduleDetails(data.trigger)
         : `\u2014`,
       status: reportDefinition.status,
     };
-    return reportDefinitionDetails;
+    return details;
   };
 
   useEffect(() => {
     const { httpClient } = props;
     httpClient
-    .get(`../api/reporting/reportDefinitions/${reportDefinitionId}`)
-    .then((response: {report_definition: ReportDefinitionSchemaType}) => {
-      handleReportDefinitionRawResponse(response);
-      handleReportDefinitionDetails(getReportDefinitionDetailsMetadata(response.report_definition));
-      props.setBreadcrumbs([
-        {
-          text: i18n.translate(
-            'opensearch.reports.reportDefinitionsDetails.schedule.breadcrumb.reporting',
-            { defaultMessage: 'Reporting' }
-          ),
-          href: '#',
-        },
-        {
-          text: i18n.translate(
-            'opensearch.reports.reportDefinitionsDetails.schedule.breadcrumb.reportDefinitionDetails',
-            {
-              defaultMessage: 'Report definition details: {name}',
-              values: {
-                name: response.report_definition.report_params.report_name,
+      .get('../api/reporting/resourceSharing/config')
+      .then((response: ResourceSharingConfig) => {
+        const nextConfig = {
+          enabled: response?.enabled === true,
+          types: response?.types || [],
+        };
+        setResourceSharingConfig(nextConfig);
+        if (
+          supportsResourceSharingForType(
+            nextConfig,
+            REPORT_DEFINITION_RESOURCE_TYPE
+          )
+        ) {
+          httpClient
+            .get('../api/reporting/resourceSharing/list', {
+              query: {
+                resourceType: REPORT_DEFINITION_RESOURCE_TYPE,
               },
-            }
-          ),
-        },
-      ]);
-    })
-    .catch((error: any) => {
-      console.error(
-        i18n.translate(
-          'opensearch.reports.reportDefinitionsDetails.schedule.breadcrumb.error',
+            })
+            .then((permissionsResponse: any) => {
+              const sharePermissions = buildSharePermissionMap(
+                permissionsResponse
+              );
+              setCanShareReportDefinition(
+                sharePermissions[reportDefinitionId] === true
+              );
+            })
+            .catch((error: any) => {
+              console.error(
+                'error when getting report definition share permissions: ',
+                error
+              );
+              setCanShareReportDefinition(false);
+            });
+        } else {
+          setCanShareReportDefinition(false);
+        }
+      })
+      .catch((error: any) => {
+        console.error('error when getting resource sharing config: ', error);
+        setResourceSharingConfig(EMPTY_RESOURCE_SHARING_CONFIG);
+        setCanShareReportDefinition(false);
+      });
+
+    httpClient
+      .get(`../api/reporting/reportDefinitions/${reportDefinitionId}`)
+      .then((response: { report_definition: ReportDefinitionSchemaType }) => {
+        handleReportDefinitionRawResponse(response);
+        handleReportDefinitionDetails(
+          getReportDefinitionDetailsMetadata(response.report_definition)
+        );
+        props.setBreadcrumbs([
           {
-            defaultMessage:
-              'error when getting report definition details: {error}',
-            values: { error: error },
-          }
-        )
-      );
-      handleDetailsErrorToast();
-    });
+            text: i18n.translate(
+              'opensearch.reports.reportDefinitionsDetails.schedule.breadcrumb.reporting',
+              { defaultMessage: 'Reporting' }
+            ),
+            href: '#',
+          },
+          {
+            text: i18n.translate(
+              'opensearch.reports.reportDefinitionsDetails.schedule.breadcrumb.reportDefinitionDetails',
+              {
+                defaultMessage: 'Report definition details: {name}',
+                values: {
+                  name: response.report_definition.report_params.report_name,
+                },
+              }
+            ),
+          },
+        ]);
+      })
+      .catch((error: any) => {
+        console.error(
+          i18n.translate(
+            'opensearch.reports.reportDefinitionsDetails.schedule.breadcrumb.error',
+            {
+              defaultMessage:
+                'error when getting report definition details: {error}',
+              values: { error },
+            }
+          )
+        );
+        handleDetailsErrorToast();
+      });
   }, []);
 
   const downloadIconDownload = async () => {
@@ -495,8 +584,8 @@ export function ReportDefinitionDetails(props: { match?: any; setBreadcrumbs?: a
     handleLoading(false);
   };
 
-  const fileFormatDownload = (data: { [x: string]: any; }) => {
-    let formatUpper = data['fileFormat'];
+  const fileFormatDownload = (data: { [x: string]: any }) => {
+    let formatUpper = data.fileFormat;
     formatUpper = fileFormatsUpper[formatUpper];
     return (
       <EuiLink
@@ -513,15 +602,17 @@ export function ReportDefinitionDetails(props: { match?: any; setBreadcrumbs?: a
     return (
       <EuiLink
         id="reportDefinitionSourceURL"
-        href={`${data.baseUrl}`} target="_blank"
+        href={`${data.baseUrl}`}
+        target="_blank"
       >
-        {data['source']}
+        {data.source}
       </EuiLink>
     );
   };
 
   const changeScheduledReportDefinitionStatus = (statusChange: string) => {
-    let updatedReportDefinition = reportDefinitionRawResponse.report_definition;
+    const updatedReportDefinition =
+      reportDefinitionRawResponse.report_definition;
     if (statusChange === 'Disable') {
       updatedReportDefinition.trigger.trigger_params.enabled = false;
       updatedReportDefinition.status = 'Disabled';
@@ -548,7 +639,7 @@ export function ReportDefinitionDetails(props: { match?: any; setBreadcrumbs?: a
           handleSuccessChangingScheduleStatusToast('disable');
         }
       })
-      .catch((error: { body: { statusCode: number; }; }) => {
+      .catch((error: { body: { statusCode: number } }) => {
         console.error('error in updating report definition status:', error);
         if (error.body.statusCode === 403) {
           handleErrorChangingScheduleStatusToast('permissions');
@@ -579,7 +670,7 @@ export function ReportDefinitionDetails(props: { match?: any; setBreadcrumbs?: a
   const generateReportFromDetails = async () => {
     const { httpClient } = props;
     handleLoading(true);
-    let generateReportSuccess = await generateReportFromDefinitionId(
+    const generateReportSuccess = await generateReportFromDefinitionId(
       reportDefinitionId,
       httpClient
     );
@@ -602,7 +693,7 @@ export function ReportDefinitionDetails(props: { match?: any; setBreadcrumbs?: a
       .then(() => {
         window.location.assign(`reports-dashboards#/delete=success`);
       })
-      .catch((error: { body: { statusCode: number; }; }) => {
+      .catch((error: { body: { statusCode: number } }) => {
         console.log('error when deleting report definition:', error);
         if (error.body.statusCode === 403) {
           handlePermissionsMissingDeleteToast();
@@ -673,17 +764,30 @@ export function ReportDefinitionDetails(props: { match?: any; setBreadcrumbs?: a
     <GenerateReportLoadingModal setShowLoading={setShowLoading} />
   ) : null;
 
+  const reportDefinitionAccessLevels = getAccessLevelsForType(
+    resourceSharingConfig,
+    REPORT_DEFINITION_RESOURCE_TYPE
+  );
+
+  const showShareButton = supportsResourceSharingForType(
+    resourceSharingConfig,
+    REPORT_DEFINITION_RESOURCE_TYPE
+  );
+
   return (
     <>
       <EuiTitle size="l">
         <h1>
-          {!getNavGroupEnabled && i18n.translate('opensearch.reports.reportDefinitionsDetails.title', {
-              defaultMessage: 'Report definition details',
-            }
-          )}
+          {!getNavGroupEnabled &&
+            i18n.translate(
+              'opensearch.reports.reportDefinitionsDetails.title',
+              {
+                defaultMessage: 'Report definition details',
+              }
+            )}
         </h1>
       </EuiTitle>
-      {!getNavGroupEnabled && <EuiSpacer size='s' />}
+      {!getNavGroupEnabled && <EuiSpacer size="s" />}
       <EuiPageContent panelPaddingSize={'l'}>
         <EuiPageHeader>
           <EuiFlexGroup>
@@ -700,6 +804,34 @@ export function ReportDefinitionDetails(props: { match?: any; setBreadcrumbs?: a
             alignItems="flexEnd"
             gutterSize="l"
           >
+            {showShareButton && (
+              <EuiFlexItem grow={false}>
+                <EuiSmallButton
+                  onClick={() =>
+                    canShareReportDefinition && setShowShareModal(true)
+                  }
+                  disabled={!canShareReportDefinition}
+                  iconType="share"
+                  id={'shareReportDefinitionButton'}
+                  title={
+                    canShareReportDefinition
+                      ? undefined
+                      : i18n.translate(
+                          'opensearch.reports.reportDefinitionsDetails.shareReportDefinitionDisabledTooltip',
+                          {
+                            defaultMessage:
+                              'You do not have permission to share this report definition.',
+                          }
+                        )
+                  }
+                >
+                  {i18n.translate(
+                    'opensearch.reports.reportDefinitionsDetails.shareReportDefinitionButton',
+                    { defaultMessage: 'Share' }
+                  )}
+                </EuiSmallButton>
+              </EuiFlexItem>
+            )}
             <EuiFlexItem grow={false}>
               <EuiSmallButton
                 color={'danger'}
@@ -754,9 +886,7 @@ export function ReportDefinitionDetails(props: { match?: any; setBreadcrumbs?: a
               'opensearch.reports.reportDefinitionsDetails.fields.description',
               { defaultMessage: 'Description' }
             )}
-            reportDetailsComponentContent={
-              reportDefinitionDetails.description
-            }
+            reportDetailsComponentContent={reportDefinitionDetails.description}
           />
           <ReportDetailsComponent
             reportDetailsComponentTitle={i18n.translate(
@@ -770,9 +900,7 @@ export function ReportDefinitionDetails(props: { match?: any; setBreadcrumbs?: a
               'opensearch.reports.reportDefinitionsDetails.fields.lastUpdated',
               { defaultMessage: 'Last updated' }
             )}
-            reportDetailsComponentContent={
-              reportDefinitionDetails.lastUpdated
-            }
+            reportDetailsComponentContent={reportDefinitionDetails.lastUpdated}
           />
         </EuiFlexGroup>
         <EuiSpacer />
@@ -842,6 +970,22 @@ export function ReportDefinitionDetails(props: { match?: any; setBreadcrumbs?: a
       />
       {showDeleteConfirmationModal}
       {showLoadingModal}
+      {showShareModal && (
+        <ResourceSharingModal
+          isOpen={true}
+          onClose={() => setShowShareModal(false)}
+          onSaveSuccess={handleSuccessUpdatingSharingToast}
+          httpClient={props.httpClient}
+          resourceId={reportDefinitionId}
+          resourceName={reportDefinitionDetails.name}
+          resourceType={REPORT_DEFINITION_RESOURCE_TYPE}
+          resourceLabel={i18n.translate(
+            'opensearch.reports.reportDefinitionsDetails.shareResourceLabel',
+            { defaultMessage: 'report definition' }
+          )}
+          accessLevels={reportDefinitionAccessLevels}
+        />
+      )}
     </>
   );
 }

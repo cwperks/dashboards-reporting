@@ -25,6 +25,9 @@ import {
   EuiFormRow,
   EuiCallOut,
 } from '@elastic/eui';
+import ReactMde from 'react-mde';
+import 'react-mde/lib/styles/css/react-mde-all.css';
+import { ReportDefinitionSchemaType } from 'server/model';
 import {
   REPORT_SOURCE_RADIOS,
   PDF_PNG_FILE_FORMAT_OPTIONS,
@@ -32,8 +35,6 @@ import {
   REPORT_SOURCE_TYPES,
   SAVED_SEARCH_FORMAT_OPTIONS,
 } from './report_settings_constants';
-import ReactMde from 'react-mde';
-import 'react-mde/lib/styles/css/react-mde-all.css';
 import {
   ReportDefinitionParams,
   TimeRangeParams,
@@ -53,10 +54,9 @@ import {
 } from './report_settings_helpers';
 import { TimeRangeSelect } from './time_range';
 import { converter } from '../utils';
-import { ReportDefinitionSchemaType } from 'server/model';
 import { ReportTrigger } from '../report_trigger';
 
-type ReportSettingProps = {
+interface ReportSettingProps {
   edit: boolean;
   editDefinitionId: string;
   reportDefinitionRequest: ReportDefinitionParams;
@@ -69,7 +69,7 @@ type ReportSettingProps = {
   showTimeRangeError: boolean;
   showTriggerIntervalNaNError: boolean;
   showCronError: boolean;
-};
+}
 
 export function ReportSettings(props: ReportSettingProps) {
   const {
@@ -109,6 +109,49 @@ export function ReportSettings(props: ReportSettingProps) {
   const [notebooks, setNotebooks] = useState([] as any);
 
   const [fileFormat, setFileFormat] = useState('pdf');
+
+  const extractReportSourceIdFromUrl = (url: string) => {
+    const trimmedUrl = url.replace(/\/$/, '');
+    const urlParts = trimmedUrl.split('/');
+    return urlParts[urlParts.length - 1];
+  };
+
+  const buildFallbackReportSourceOption = (
+    reportSource: string,
+    url: string
+  ) => {
+    const sourceId = extractReportSourceIdFromUrl(url);
+    return {
+      value: sourceId,
+      label: `Current ${reportSource.toLowerCase()} (${sourceId})`,
+    };
+  };
+
+  const setDropdownSelectionWithFallback = (
+    options,
+    reportSource,
+    url,
+    setSelectedOptions,
+    setOptions
+  ) => {
+    const selectedOption = options.find((option) => url.includes(option.value));
+
+    if (selectedOption) {
+      setSelectedOptions([selectedOption]);
+      return;
+    }
+
+    const fallbackOption = buildFallbackReportSourceOption(reportSource, url);
+
+    if (fallbackOption.value) {
+      setSelectedOptions([fallbackOption]);
+      setOptions((previousOptions) =>
+        previousOptions.some((option) => option.value === fallbackOption.value)
+          ? previousOptions
+          : [...previousOptions, fallbackOption]
+      );
+    }
+  };
 
   const handleDashboards = (e) => {
     setDashboards(e);
@@ -399,20 +442,20 @@ export function ReportSettings(props: ReportSettingProps) {
               response.report_definition;
             const {
               report_params: {
-                core_params: { header, footer },
+                core_params: { header: savedHeader, footer: savedFooter },
               },
             } = reportDefinition;
             // set header/footer default
-            if (header) {
+            if (savedHeader) {
               checkboxIdSelectHeaderFooter.header = true;
               if (!unmounted) {
-                setHeader(header);
+                setHeader(savedHeader);
               }
             }
-            if (footer) {
+            if (savedFooter) {
               checkboxIdSelectHeaderFooter.footer = true;
               if (!unmounted) {
-                setFooter(footer);
+                setFooter(savedFooter);
               }
             }
           })
@@ -478,33 +521,47 @@ export function ReportSettings(props: ReportSettingProps) {
   };
 
   const setReportSourceDropdownOption = (options, reportSource, url) => {
-    let index = 0;
     if (reportSource === REPORT_SOURCE_TYPES.dashboard) {
-      for (index = 0; index < options.dashboard.length; ++index) {
-        if (url.includes(options.dashboard[index].value)) {
-          setDashboardSourceSelect([options.dashboard[index]]);
-        }
-      }
+      setDropdownSelectionWithFallback(
+        options.dashboard,
+        reportSource,
+        url,
+        setDashboardSourceSelect,
+        setDashboards
+      );
     } else if (reportSource === REPORT_SOURCE_TYPES.visualization) {
-      for (index = 0; index < options.visualizations.length; ++index) {
-        if (url.includes(options.visualizations[index].value)) {
-          setVisualizationSourceSelect([options.visualizations[index]]);
-        }
-      }
+      setDropdownSelectionWithFallback(
+        options.visualizations,
+        reportSource,
+        url,
+        setVisualizationSourceSelect,
+        setVisualizations
+      );
     } else if (reportSource === REPORT_SOURCE_TYPES.savedSearch) {
-      for (index = 0; index < options.savedSearch.length; ++index) {
-        if (url.includes(options.savedSearch[index].value)) {
-          setSavedSearchSourceSelect([options.savedSearch[index]]);
-        }
-      }
+      setDropdownSelectionWithFallback(
+        options.savedSearch,
+        reportSource,
+        url,
+        setSavedSearchSourceSelect,
+        setSavedSearches
+      );
+    } else if (reportSource === REPORT_SOURCE_TYPES.notebook) {
+      setDropdownSelectionWithFallback(
+        options.notebooks,
+        reportSource,
+        url,
+        setNotebooksSourceSelect,
+        setNotebooks
+      );
     }
   };
 
-  const setDefaultFileFormat = (fileFormat) => {
+  const setDefaultFileFormat = (selectedFileFormat) => {
     let index = 0;
     for (index = 0; index < PDF_PNG_FILE_FORMAT_OPTIONS.length; ++index) {
       if (
-        fileFormat.toUpperCase() === PDF_PNG_FILE_FORMAT_OPTIONS[index].label
+        selectedFileFormat.toUpperCase() ===
+        PDF_PNG_FILE_FORMAT_OPTIONS[index].label
       ) {
         setFileFormat(PDF_PNG_FILE_FORMAT_OPTIONS[index].id);
       }
@@ -606,7 +663,7 @@ export function ReportSettings(props: ReportSettingProps) {
       }
     });
 
-    if (reportSource == REPORT_SOURCE_TYPES.savedSearch) {
+    if (reportSource === REPORT_SOURCE_TYPES.savedSearch) {
       setSavedSearchRecordLimit(
         response.report_definition.report_params.core_params.limit
       );
@@ -622,9 +679,9 @@ export function ReportSettings(props: ReportSettingProps) {
     );
   };
 
-  const defaultConfigurationEdit = async (httpClientProps) => {
+  const defaultConfigurationEdit = async (httpClient) => {
     let editData = {};
-    await httpClientProps
+    await httpClient
       .get(`../api/reporting/reportDefinitions/${editDefinitionId}`)
       .then(async (response: {}) => {
         editData = response;
@@ -635,18 +692,18 @@ export function ReportSettings(props: ReportSettingProps) {
     return editData;
   };
 
-  const defaultConfigurationCreate = async (httpClientProps) => {
-    let reportSourceOptions = {
+  const defaultConfigurationCreate = async (httpClient) => {
+    const reportSourceOptions = {
       dashboard: [],
       visualizations: [],
       savedSearch: [],
       notebooks: [],
     };
     reportDefinitionRequest.report_params.core_params.report_format = fileFormat;
-    await httpClientProps
+    await httpClient
       .get('../api/reporting/getReportSource/dashboard')
       .then(async (response) => {
-        let dashboardOptions = getDashboardOptions(response['hits']['hits']);
+        const dashboardOptions = getDashboardOptions(response.hits.hits);
         reportSourceOptions.dashboard = dashboardOptions;
         handleDashboards(dashboardOptions);
         if (!edit) {
@@ -657,11 +714,11 @@ export function ReportSettings(props: ReportSettingProps) {
         console.log('error when fetching dashboards:', error);
       });
 
-    await httpClientProps
+    await httpClient
       .get('../api/reporting/getReportSource/visualization')
       .then(async (response) => {
-        let visualizationOptions = getVisualizationOptions(
-          response['hits']['hits']
+        const visualizationOptions = getVisualizationOptions(
+          response.hits.hits
         );
         reportSourceOptions.visualizations = visualizationOptions;
         await handleVisualizations(visualizationOptions);
@@ -670,12 +727,10 @@ export function ReportSettings(props: ReportSettingProps) {
         console.log('error when fetching visualizations:', error);
       });
 
-    await httpClientProps
+    await httpClient
       .get('../api/reporting/getReportSource/search')
       .then(async (response) => {
-        let savedSearchOptions = getSavedSearchOptions(
-          response['hits']['hits']
-        );
+        const savedSearchOptions = getSavedSearchOptions(response.hits.hits);
         reportSourceOptions.savedSearch = savedSearchOptions;
         await handleSavedSearches(savedSearchOptions);
       })
@@ -683,17 +738,17 @@ export function ReportSettings(props: ReportSettingProps) {
         console.log('error when fetching saved searches:', error);
       });
 
-    await httpClientProps
+    await httpClient
       .get('../api/observability/notebooks/savedNotebook')
       .catch((error: any) => {
         console.error(
           'error fetching notebooks, retrying with legacy api',
           error
         );
-        return httpClientProps.get('../api/notebooks/');
+        return httpClient.get('../api/notebooks/');
       })
       .then(async (response: any) => {
-        let notebooksOptions = getNotebooksOptions(response.data);
+        const notebooksOptions = getNotebooksOptions(response.data);
         reportSourceOptions.notebooks = notebooksOptions;
         await handleNotebooks(notebooksOptions);
       })
@@ -704,23 +759,35 @@ export function ReportSettings(props: ReportSettingProps) {
   };
 
   useEffect(() => {
-    let reportSourceOptions = {};
-    let editData = {};
-    if (edit) {
-      defaultConfigurationEdit(httpClientProps).then(async (response) => {
-        editData = response;
-      });
-    }
-    defaultConfigurationCreate(httpClientProps).then(async (response) => {
-      reportSourceOptions = response;
+    let unmounted = false;
+
+    const loadDefaultConfiguration = async () => {
+      const [reportSourceOptions, editData] = await Promise.all([
+        defaultConfigurationCreate(httpClientProps),
+        edit
+          ? defaultConfigurationEdit(httpClientProps)
+          : Promise.resolve(undefined),
+      ]);
+
+      if (unmounted) {
+        return;
+      }
+
       // if coming from in-context menu
       if (window.location.href.indexOf('?') > -1) {
-        setInContextDefaultConfiguration(response);
+        setInContextDefaultConfiguration(reportSourceOptions);
       }
-      if (edit) {
+
+      if (edit && editData?.report_definition) {
         setDefaultEditValues(editData, reportSourceOptions);
       }
-    });
+    };
+
+    loadDefaultConfiguration();
+
+    return () => {
+      unmounted = true;
+    };
   }, []);
 
   const displayDashboardSelect =
@@ -808,7 +875,10 @@ export function ReportSettings(props: ReportSettingProps) {
               color="primary"
               title={i18n.translate(
                 'opensearch.reports.reportSettingProps.form.savedSearchLargeRecordLimitWarning',
-                { defaultMessage: 'Generating reports with a large number of records can cause memory issues' }
+                {
+                  defaultMessage:
+                    'Generating reports with a large number of records can cause memory issues',
+                }
               )}
               iconType="iInCircle"
               size="s"
@@ -834,7 +904,7 @@ export function ReportSettings(props: ReportSettingProps) {
     ) : null;
 
   const displayVisualReportsFormatAndMarkdown =
-    reportSourceId != 'savedSearchReportSource' ? (
+    reportSourceId !== 'savedSearchReportSource' ? (
       <div>
         <VisualReportFormatAndMarkdown />
         <SettingsMarkdown />
@@ -865,7 +935,7 @@ export function ReportSettings(props: ReportSettingProps) {
     ) : null;
 
   const displayTimeRangeSelect =
-    reportSourceId != 'notebooksReportSource' ? (
+    reportSourceId !== 'notebooksReportSource' ? (
       <div>
         <TimeRangeSelect
           timeRange={timeRange}
