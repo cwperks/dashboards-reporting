@@ -24,6 +24,7 @@ import {
 
 export interface ReportingPluginSetupDependencies {
   dataSource: DataSourcePluginSetup;
+  securityDashboards?: any;
 }
 
 export class ReportsDashboardsPlugin
@@ -31,13 +32,21 @@ export class ReportsDashboardsPlugin
     Plugin<ReportsDashboardsPluginSetup, ReportsDashboardsPluginStart> {
   public setup(
     core: CoreSetup,
-    { dataSource }: ReportingPluginSetupDependencies
+    { dataSource, securityDashboards }: ReportingPluginSetupDependencies
   ): ReportsDashboardsPluginSetup {
     uiSettingsService.init(core.uiSettings, core.http);
     // Register an application into the side navigation menu
     if (!dataSource) {
+      const updater$ = securityDashboards
+        ? core.application.createAsyncUpdater(async () => {
+            const hasAccess = await securityDashboards.checkHasApiPermission();
+            return hasAccess !== false;
+          })
+        : undefined;
+
       core.application.register({
         id: PLUGIN_ID,
+        updater$,
         title: i18n.translate('opensearch.reports.pluginName', {
           defaultMessage: PLUGIN_NAME,
         }),
